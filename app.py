@@ -22,7 +22,7 @@ def load_training_data():
 
 X_train, y_train = load_training_data()
 
-# Biomarker Extraction (Top 20)
+# Baseline Biomarker Extraction
 variances = X_train.var()
 top_20_microbes = variances.nlargest(20).index
 X_top_train = X_train[top_20_microbes]
@@ -31,43 +31,11 @@ X_top_train = X_train[top_20_microbes]
 rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
 rf_model.fit(X_top_train, y_train)
 
-# --- 3. The Scientist's Interface (Sidebar) ---
-st.sidebar.header("📥 Upload Sample Data")
-st.sidebar.markdown("Upload a CSV matrix containing RNA-Seq TPM counts.")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
-
-if uploaded_file is not None:
-    # Read the scientist's uploaded file
-    new_data = pd.read_csv(uploaded_file, index_col=0)
-
-    #Force the new data to perfectly match the AI's expectedcolumns, filling missing ones with 0
-    X_new = new_data.reindex(columns=top_20_microbes, fill_value=0)
-            
-    # Predict Time of Death
-    predictions = rf_model.predict(X_new)
-    
-    st.success("✅ Analysis Complete!")
-    st.subheader("⏱️ Estimated Post-Mortem Interval (PMI)")
-    
-    # Display results nicely
-    results_df = pd.DataFrame({
-        "Sample ID": new_data.index,
-        "Predicted PMI (Hours)": np.round(predictions, 2)
-    })
-    st.dataframe(results_df, use_container_width=True)
-
-else:
-    st.info("👈 Please upload a sample CSV matrix in the sidebar to estimate PMI.")
-
-# --- 4. Gene-Gene (Microbe) Interaction Graph ---
-st.divider()
-st.subheader("🕸️ Background Microbial Co-Expression Network")
-st.write("This interactive graph shows how the top 20 biomarker species interact during decomposition based on the training set. Green links indicate synergy; red links indicate competition.")
-
-def build_network_graph(data):
-    corr_matrix = data.corr(method='spearman')
+# --- Network Graph Generator Function ---
+def build_network_graph(data, key_suffix="main"):
+    corr_matrix = data.corr(method='spearman').fillna(0)
     G = nx.Graph()
-    threshold = 0.7  
+    threshold = 0.5  # Adjusted threshold for higher dynamic sensitivity
     
     for i in range(len(corr_matrix.columns)):
         for j in range(i+1, len(corr_matrix.columns)):
@@ -75,7 +43,7 @@ def build_network_graph(data):
             microbe_b = corr_matrix.columns[j]
             weight = corr_matrix.iloc[i, j]
             
-            if abs(weight) > threshold:
+            if abs(weight) > threshold and weight != 0:
                 G.add_node(microbe_a, title=microbe_a, color="#2E86AB")
                 G.add_node(microbe_b, title=microbe_b, color="#2E86AB")
                 edge_color = "#4CAF50" if weight > 0 else "#F44336"
@@ -85,11 +53,58 @@ def build_network_graph(data):
     net.from_nx(G)
     net.repulsion(node_distance=150, spring_length=200)
     
-    path = "tmp_graph.html"
+    path = f"tmp_graph_{key_suffix}.html"
     net.save_graph(path)
     return path
 
-graph_path = build_network_graph(X_top_train)
+# --- 3. Sidebar & User Interface ---
+st.sidebar.header("📥 Upload Sample Data")
+st.sidebar.markdown("Upload a CSV matrix containing RNA-Seq TPM counts.")
+uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
+
+# Default active dataset for graph (Baseline)
+active_graph_data = X_top_train
+graph_title = "🕸️ Baseline Microbial Co-Expression Network"
+graph_subtitle = "Showing baseline reference interactions from background model dataset."
+
+if uploaded_file is not None:
+    new_data = pd.read_csv(uploaded_file, index_col=0)
+    
+    # 1. Align features for AI model prediction
+    X_new = new_data.reindex(columns=top_20_microbes, fill_value=0)
+    predictions = rf_model.predict(X_new)
+    
+    st.success("✅ Analysis Complete!")
+    st.subheader("⏱️ Estimated Post-Mortem Interval (PMI)")
+    
+    results_df = pd.DataFrame({
+        "Sample ID": new_data.index,
+        "Predicted PMI (Hours)": np.round(predictions, 2)
+    })
+    st.dataframe(results_df, use_container_width=True)
+    
+    # 2. Dynamic Graph USP Logic
+    numeric_df = new_data.select_dtypes(include=[np.number])
+    if len(numeric_df) >= 3:
+        # Extract top dynamic biomarkers from uploaded set
+        up_vars = numeric_df.var().fillna(0)
+        top_up_cols = up_vars.nlargest(min(20, len(numeric_df.columns))).index
+        active_graph_data = numeric_df[top_up_cols]
+        graph_title = "🕸️ Live Dynamic Microbial Co-Expression Network"
+        graph_subtitle = "Re-calculated Spearman co-occurrence directly from your uploaded case file!"
+    else:
+        st.warning("ℹ️ Uploaded dataset has fewer than 3 samples. Displaying baseline interaction map for reference.")
+
+else:
+    st.info("👈 Please upload a sample CSV matrix in the sidebar to estimate PMI.")
+
+# --- 4. Render Interactive Network ---
+st.divider()
+st.subheader(graph_title)
+st.write(graph_subtitle)
+
+graph_path = build_network_graph(active_graph_data, key_suffix="live")
 HtmlFile = open(graph_path, 'r', encoding='utf-8')
 components.html(HtmlFile.read(), height=510)
-os.remove(graph_path)
+if os.path.exists(graph_path):
+    os.remove(graph_path)
