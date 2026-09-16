@@ -39,15 +39,9 @@ uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
 if uploaded_file is not None:
     # Read the scientist's uploaded file
     new_data = pd.read_csv(uploaded_file, index_col=0)
-    
-    # Filter for our specific 20 biomarkers
-    # (Fills missing microbes with 0 to prevent errors)
-    X_new = pd.DataFrame(columns=top_20_microbes)
-    for col in top_20_microbes:
-        if col in new_data.columns:
-            X_new[col] = new_data[col]
-        else:
-            X_new[col] = 0
+
+    #Force the new data to perfectly match the AI's expectedcolumns, filling missing ones with 0
+    X_new = new_data.reindex(columns=top_20_microbes, fill_value=0)
             
     # Predict Time of Death
     predictions = rf_model.predict(X_new)
