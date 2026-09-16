@@ -35,7 +35,7 @@ rf_model.fit(X_top_train, y_train)
 def build_network_graph(data, key_suffix="main"):
     corr_matrix = data.corr(method='spearman').fillna(0)
     G = nx.Graph()
-    threshold = 0.5  # Adjusted threshold for higher dynamic sensitivity
+    threshold = 0.9  # Strict threshold for clean, authentic biological traces
     
     for i in range(len(corr_matrix.columns)):
         for j in range(i+1, len(corr_matrix.columns)):
