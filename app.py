@@ -98,9 +98,19 @@ if check_password():
         new_data = pd.read_csv(uploaded_file, index_col=0)
         st.session_state['use_demo'] = False
     elif st.session_state.get('use_demo', False):
-        # Pull 5 random baseline samples and rename them like real case files
-        new_data = X_top_train.sample(5, random_state=42).copy()
+        # Added replace=True to safely handle small background datasets
+        new_data = X_top_train.sample(5, random_state=42, replace=True).copy()
         new_data.index = [f"Forensic_Case_48h_Rep{i}" for i in range(1, 6)]
+        
+        # Inject biological noise and transcript dropouts for realism
+        np.random.seed(42)
+        for col in new_data.columns:
+            if np.random.rand() > 0.6:
+                drop_idx = np.random.choice(new_data.index, 2, replace=False)
+                new_data.loc[drop_idx, col] = 0.0
+            new_data[col] = new_data[col].apply(lambda x: max(0, x + np.random.normal(0, 3)) if x > 0 else 0)
+            
+        st.sidebar.success("✅ Loaded Messy Demo Casework")
         
         # Inject biological noise and transcript dropouts for realism
         np.random.seed(42)
