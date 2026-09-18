@@ -6,105 +6,154 @@ from pyvis.network import Network
 import streamlit.components.v1 as components
 import os
 from sklearn.ensemble import RandomForestRegressor
+import plotly.express as px  # Added for heatmap
 
 # --- Page Setup ---
 st.set_page_config(page_title="Necrobiome PMI Predictor", layout="wide")
-st.title("🔬 Necrobiome-Based Post-Mortem Interval Estimation")
-st.markdown("AI-powered prototype for analyzing early forensic microbial drivers.")
 
-# --- 1. Background Training Data ---
-@st.cache_data
-def load_training_data():
-    df = pd.read_csv("master_pmi_matrix.csv", index_col=0)
-    y = df['pmi_hours'].astype(float)
-    X = df.drop(columns=['pmi_hours', 'timepoint', 'treatment', 'organ'], errors='ignore')
-    return X, y
+# --- 1. Forensic Authentication Portal ---
+def check_password():
+    """Returns True if the user enters the correct access key."""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
 
-X_train, y_train = load_training_data()
+    if not st.session_state["password_correct"]:
+        st.title("🔒 Forensic Gateway")
+        st.write("Please authenticate to access the PMI prediction platform.")
+        # Hardcoded password for presentation purposes
+        access_key = st.text_input("Enter Access Key:", type="password")
+        
+        if st.button("Login"):
+            if access_key == "demo2026":
+                st.session_state["password_correct"] = True
+                st.rerun()
+            else:
+                st.error("😕 Access Denied. Incorrect Key.")
+        return False
+    return True
 
-# Baseline Biomarker Extraction
-variances = X_train.var()
-top_20_microbes = variances.nlargest(20).index
-X_top_train = X_train[top_20_microbes]
+# --- Main Application (Only runs if authenticated) ---
+if check_password():
+    st.title("🦠 Necrobiome-Based Post-Mortem Interval Estimation")
+    st.markdown("AI-powered prototype for analyzing early forensic microbial drivers.")
 
-# --- 2. Train the AI Model ---
-rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-rf_model.fit(X_top_train, y_train)
+    # --- 2. Background Training Data ---
+    @st.cache_data
+    def load_training_data():
+        df = pd.read_csv("master_pmi_matrix.csv", index_col=0)
+        y = df['pmi_hours'].astype(float)
+        X = df.drop(columns=['pmi_hours', 'timepoint', 'treatment', 'organ'], errors='ignore')
+        return X, y
 
-# --- Network Graph Generator Function ---
-def build_network_graph(data, key_suffix="main"):
-    corr_matrix = data.corr(method='spearman').fillna(0)
-    G = nx.Graph()
-    threshold = 0.65  # Strict threshold for clean, authentic biological traces
+    X_train, y_train = load_training_data()
     
-    for i in range(len(corr_matrix.columns)):
-        for j in range(i+1, len(corr_matrix.columns)):
-            microbe_a = corr_matrix.columns[i]
-            microbe_b = corr_matrix.columns[j]
-            weight = corr_matrix.iloc[i, j]
+    variances = X_train.var()
+    top_20_microbes = variances.nlargest(20).index
+    X_top_train = X_train[top_20_microbes]
+
+    # --- 3. Train the AI Model ---
+    rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+    rf_model.fit(X_top_train, y_train)
+
+    # --- 4. Network Graph Generator Function ---
+    def build_network_graph(data, key_suffix="main"):
+        corr_matrix = data.corr(method='spearman').fillna(0)
+        G = nx.Graph()
+        threshold = 0.65 
+        
+        for i in range(len(corr_matrix.columns)):
+            for j in range(i+1, len(corr_matrix.columns)):
+                microbe_a = corr_matrix.columns[i]
+                microbe_b = corr_matrix.columns[j]
+                weight = corr_matrix.iloc[i, j]
+                
+                if abs(weight) > threshold and weight != 0:
+                    G.add_node(microbe_a, title=microbe_a, color="#2E86AB")
+                    G.add_node(microbe_b, title=microbe_b, color="#2E86AB")
+                    edge_color = "#4CAF50" if weight > 0 else "#F44336"
+                    G.add_edge(microbe_a, microbe_b, value=abs(weight), color=edge_color)
+                    
+        net = Network(height="500px", width="100%", bgcolor="#222222", font_color="white")
+        net.from_nx(G)
+        net.repulsion(node_distance=150, spring_length=200)
+        
+        path = f"tmp_graph_{key_suffix}.html"
+        net.save_graph(path)
+        return path
+
+    # --- 5. Sidebar & User Interface ---
+    st.sidebar.header("📁 Upload Sample Data")
+    st.sidebar.markdown("Upload a CSV matrix containing RNA-Seq TPM counts.")
+    uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
+    
+    st.sidebar.divider()
+    
+    # Load Demo Case Logic
+    if st.sidebar.button("Load Demo Forensic Case"):
+        st.session_state['use_demo'] = True
+        
+    # --- 6. Main Execution (Conditional Rendering) ---
+    new_data = None
+    if uploaded_file is not None:
+        new_data = pd.read_csv(uploaded_file, index_col=0)
+        st.session_state['use_demo'] = False
+    elif st.session_state.get('use_demo', False):
+        new_data = X_top_train.head(6).copy()
+        st.sidebar.success("Loaded Demo Data")
+
+    if new_data is not None:
+        with st.spinner("Quantifying transcript abundances and calculating microbial networks..."):
+            # Model prediction
+            X_new = new_data.reindex(columns=top_20_microbes, fill_value=0)
+            predictions = rf_model.predict(X_new)
             
-            if abs(weight) > threshold and weight != 0:
-                G.add_node(microbe_a, title=microbe_a, color="#2E86AB")
-                G.add_node(microbe_b, title=microbe_b, color="#2E86AB")
-                edge_color = "#4CAF50" if weight > 0 else "#F44336"
-                G.add_edge(microbe_a, microbe_b, value=abs(weight), color=edge_color)
+            st.success("✅ Analysis Complete!")
+            st.subheader("⏱️ Estimated Post-Mortem Interval (PMI)")
+            
+            results_df = pd.DataFrame({
+                "Sample ID": new_data.index,
+                "Predicted PMI (Hours)": np.round(predictions, 2)
+            })
+            st.dataframe(results_df, use_container_width=True)
 
-    net = Network(height="500px", width="100%", bgcolor="#222222", font_color="white")
-    net.from_nx(G)
-    net.repulsion(node_distance=150, spring_length=200)
-    
-    path = f"tmp_graph_{key_suffix}.html"
-    net.save_graph(path)
-    return path
+            # Export Forensic Report feature
+            csv = results_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Forensic Case Report",
+                data=csv,
+                file_name='forensic_PMI_report.csv',
+                mime='text/csv',
+            )
+            
+            st.divider()
 
-# --- 3. Sidebar & User Interface ---
-st.sidebar.header("📥 Upload Sample Data")
-st.sidebar.markdown("Upload a CSV matrix containing RNA-Seq TPM counts.")
-uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type=["csv"])
+            numeric_df = new_data.select_dtypes(include=[np.number])
+            
+            if len(numeric_df) >= 3:
+                col1, col2 = st.columns(2)
+                
+                # Interactive Heatmap
+                with col1:
+                    st.subheader("🔥 Transcriptomic Heatmap")
+                    st.write("Spearman correlations across active microbial biomarkers.")
+                    corr_matrix = numeric_df.corr(method='spearman').fillna(0)
+                    fig = px.imshow(corr_matrix, 
+                                    text_auto=False, 
+                                    aspect="auto",
+                                    color_continuous_scale='RdBu_r')
+                    st.plotly_chart(fig, use_container_width=True)
 
-# Default active dataset for graph (Baseline)
-active_graph_data = X_top_train
-graph_title = "🕸️ Baseline Microbial Co-Expression Network"
-graph_subtitle = "Showing baseline reference interactions from background model dataset."
-
-if uploaded_file is not None:
-    new_data = pd.read_csv(uploaded_file, index_col=0)
-    
-    # 1. Align features for AI model prediction
-    X_new = new_data.reindex(columns=top_20_microbes, fill_value=0)
-    predictions = rf_model.predict(X_new)
-    
-    st.success("✅ Analysis Complete!")
-    st.subheader("⏱️ Estimated Post-Mortem Interval (PMI)")
-    
-    results_df = pd.DataFrame({
-        "Sample ID": new_data.index,
-        "Predicted PMI (Hours)": np.round(predictions, 2)
-    })
-    st.dataframe(results_df, use_container_width=True)
-    
-    # 2. Dynamic Graph USP Logic
-    numeric_df = new_data.select_dtypes(include=[np.number])
-    if len(numeric_df) >= 3:
-        # Extract top dynamic biomarkers from uploaded set
-        up_vars = numeric_df.var().fillna(0)
-        top_up_cols = up_vars.nlargest(min(20, len(numeric_df.columns))).index
-        active_graph_data = numeric_df[top_up_cols]
-        graph_title = "🕸️ Live Dynamic Microbial Co-Expression Network"
-        graph_subtitle = "Re-calculated Spearman co-occurrence directly from your uploaded case file!"
+                # Co-Expression Network
+                with col2:
+                    st.subheader("🕸️ Dynamic Co-Expression Network")
+                    st.write("Re-calculated Spearman interactions from case file.")
+                    graph_path = build_network_graph(numeric_df, key_suffix="live")
+                    HtmlFile = open(graph_path, 'r', encoding='utf-8')
+                    components.html(HtmlFile.read(), height=510)
+                    if os.path.exists(graph_path):
+                        os.remove(graph_path)
+            else:
+                st.warning("⚠️ A minimum of 3 samples is required to calculate correlation networks.")
     else:
-        st.warning("ℹ️ Uploaded dataset has fewer than 3 samples. Displaying baseline interaction map for reference.")
-
-else:
-    st.info("👈 Please upload a sample CSV matrix in the sidebar to estimate PMI.")
-
-# --- 4. Render Interactive Network ---
-st.divider()
-st.subheader(graph_title)
-st.write(graph_subtitle)
-
-graph_path = build_network_graph(active_graph_data, key_suffix="live")
-HtmlFile = open(graph_path, 'r', encoding='utf-8')
-components.html(HtmlFile.read(), height=510)
-if os.path.exists(graph_path):
-    os.remove(graph_path)
+        # This keeps the app completely empty until data is uploaded
+        st.info("👈 Please upload a case file in the sidebar or load the Demo Case to initiate the pipeline.")
