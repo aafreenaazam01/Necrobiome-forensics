@@ -113,3 +113,58 @@ if check_password():
         st.sidebar.success("✅ Loaded Messy Demo Casework")
 
     if new_data is not None:
+        with st.spinner("Quantifying transcript abundances and calculating microbial networks..."):
+            # Model prediction
+            X_new = new_data.reindex(columns=top_20_microbes, fill_value=0)
+            predictions = rf_model.predict(X_new)
+            
+            st.success("✅ Analysis Complete!")
+            st.subheader("⏱️ Estimated Post-Mortem Interval (PMI)")
+            
+            results_df = pd.DataFrame({
+                "Sample ID": new_data.index,
+                "Predicted PMI (Hours)": np.round(predictions, 2)
+            })
+            st.dataframe(results_df, use_container_width=True)
+
+            # Export Forensic Report feature
+            csv = results_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Forensic Case Report",
+                data=csv,
+                file_name='forensic_PMI_report.csv',
+                mime='text/csv',
+            )
+            
+            st.divider()
+
+            numeric_df = new_data.select_dtypes(include=[np.number])
+            
+            if len(numeric_df) >= 3:
+                col1, col2 = st.columns(2)
+                
+                # Interactive Heatmap
+                with col1:
+                    st.subheader("🔥 Transcriptomic Heatmap")
+                    st.write("Spearman correlations across active microbial biomarkers.")
+                    corr_matrix = numeric_df.corr(method='spearman').fillna(0)
+                    fig = px.imshow(corr_matrix, 
+                                    text_auto=False, 
+                                    aspect="auto",
+                                    color_continuous_scale='RdBu_r')
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # Co-Expression Network
+                with col2:
+                    st.subheader("🕸️ Dynamic Co-Expression Network")
+                    st.write("Re-calculated Spearman interactions from case file.")
+                    graph_path = build_network_graph(numeric_df, key_suffix="live")
+                    HtmlFile = open(graph_path, 'r', encoding='utf-8')
+                    components.html(HtmlFile.read(), height=510)
+                    if os.path.exists(graph_path):
+                        os.remove(graph_path)
+            else:
+                st.warning("⚠️ A minimum of 3 samples is required to calculate correlation networks.")
+    else:
+        # This keeps the app completely empty until data is uploaded
+        st.info("👈 Please upload a case file in the sidebar or load the Demo Case to initiate the pipeline.")
