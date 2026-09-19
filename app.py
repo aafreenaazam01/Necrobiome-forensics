@@ -6,7 +6,7 @@ from pyvis.network import Network
 import streamlit.components.v1 as components
 import os
 from sklearn.ensemble import RandomForestRegressor
-import plotly.express as px  # Added for heatmap
+import plotly.express as px
 
 # --- Page Setup ---
 st.set_page_config(page_title="Necrobiome PMI Predictor", layout="wide")
@@ -20,7 +20,8 @@ def check_password():
     if not st.session_state["password_correct"]:
         st.title("🔒 Forensic Gateway")
         st.write("Please authenticate to access the PMI prediction platform.")
-        # Hardcoded password for presentation purposes
+        st.info("🔑 **Reviewer Access:** Please enter the evaluation key `demo2026` to unlock the dashboard.")
+        
         access_key = st.text_input("Enter Access Key:", type="password")
         
         if st.button("Login"):
@@ -32,7 +33,7 @@ def check_password():
         return False
     return True
 
-# --- Main Application (Only runs if authenticated) ---
+# --- Main Application ---
 if check_password():
     st.title("🦠 Necrobiome-Based Post-Mortem Interval Estimation")
     st.markdown("AI-powered prototype for analyzing early forensic microbial drivers.")
@@ -88,31 +89,39 @@ if check_password():
     
     st.sidebar.divider()
     
-    # Load Demo Case Logic
     if st.sidebar.button("Load Demo Forensic Case"):
         st.session_state['use_demo'] = True
+
+    st.sidebar.divider()
+    
+    # Taphonomic Sliders
+    st.sidebar.subheader("🌡️ Taphonomic Metadata")
+    scene_temp = st.sidebar.slider("Ambient Temperature (°C)", -10.0, 50.0, 22.0, step=0.5)
+    scene_humidity = st.sidebar.slider("Relative Humidity (%)", 0, 100, 50)
+
+    st.sidebar.divider()
+    
+    # Wet-to-Dry Methodology Expander
+    with st.sidebar.expander("🔬 Upstream Pipeline Methodology"):
+        st.write("""
+        **Wet Lab Extraction:** Total RNA extracted from casework samples.  
+        **Sequencing:** Metatranscriptomic library preparation (e.g., Illumina RNA-Seq).  
+        **Dry Lab Pre-Processing:** Reads quantified and normalized (TPM/DESeq2) prior to model ingestion.
+        """)
         
-   # --- 6. Main Execution (Conditional Rendering) ---
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("👨‍🔬 **Developer:** [aafreenaazam01](https://github.com/aafreenaazam01)")
+        
+    # --- 6. Main Execution (Conditional Rendering) ---
     new_data = None
     if uploaded_file is not None:
         new_data = pd.read_csv(uploaded_file, index_col=0)
         st.session_state['use_demo'] = False
     elif st.session_state.get('use_demo', False):
-        # Added replace=True to safely handle small background datasets
+        # Generate messy, realistic demo data safely
         new_data = X_top_train.sample(5, random_state=42, replace=True).copy()
         new_data.index = [f"Forensic_Case_48h_Rep{i}" for i in range(1, 6)]
         
-        # Inject biological noise and transcript dropouts for realism
-        np.random.seed(42)
-        for col in new_data.columns:
-            if np.random.rand() > 0.6:
-                drop_idx = np.random.choice(new_data.index, 2, replace=False)
-                new_data.loc[drop_idx, col] = 0.0
-            new_data[col] = new_data[col].apply(lambda x: max(0, x + np.random.normal(0, 3)) if x > 0 else 0)
-            
-        st.sidebar.success("✅ Loaded Messy Demo Casework")
-        
-        # Inject biological noise and transcript dropouts for realism
         np.random.seed(42)
         for col in new_data.columns:
             if np.random.rand() > 0.6:
@@ -136,6 +145,12 @@ if check_password():
                 "Predicted PMI (Hours)": np.round(predictions, 2)
             })
             st.dataframe(results_df, use_container_width=True)
+
+            # Authentic Taphonomic Context Alert
+            if scene_temp > 28.0 or scene_temp < 15.0:
+                st.warning(f"⚠️ **Taphonomic Variance Alert:** Recorded ambient temperature (**{scene_temp}°C**) deviates from the mesophilic baseline. Microbial RNA transcription and degradation kinetics are highly temperature-dependent. Investigators must apply standard Accumulated Degree Day (ADD) corrections to the baseline PMI prediction.")
+            else:
+                st.info(f"ℹ️ **Environmental Context:** Scene conditions logged at **{scene_temp}°C**, **{scene_humidity}%** humidity. Model confidence is highest within this standard mesophilic range.")
 
             # Export Forensic Report feature
             csv = results_df.to_csv(index=False).encode('utf-8')
@@ -176,5 +191,7 @@ if check_password():
             else:
                 st.warning("⚠️ A minimum of 3 samples is required to calculate correlation networks.")
     else:
-        # This keeps the app completely empty until data is uploaded
+        # Keeps the app completely empty until data is uploaded
         st.info("👈 Please upload a case file in the sidebar or load the Demo Case to initiate the pipeline.")
+  
+               
